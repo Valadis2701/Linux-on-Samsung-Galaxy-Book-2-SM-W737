@@ -1,0 +1,15 @@
+[Unit]
+Description=W737 AMOLED brightness restore
+After=graphical.target w737-fix10.service w737-brightnessd.service
+Requires=w737-brightnessd.service
+Wants=graphical.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 40); do [ "$(cat /sys/class/drm/card0-DPI-1/enabled 2>/dev/null)" = enabled ] && break; sleep 0.5; done'
+ExecStart=/usr/local/sbin/w737-brightness-set
+TimeoutStartSec=40
+
+[Install]
+WantedBy=graphical.target

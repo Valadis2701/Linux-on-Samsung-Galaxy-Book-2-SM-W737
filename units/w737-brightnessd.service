@@ -1,0 +1,16 @@
+[Unit]
+Description=W737 AMOLED brightness daemon (caches panel calibration)
+After=w737-fix10.service
+Before=w737-brightness.service
+Wants=w737-fix10.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/w737-brightnessd
+Restart=always
+RestartSec=2
+RuntimeDirectory=w737-brightness
+RuntimeDirectoryMode=0775
+
+[Install]
+WantedBy=multi-user.target

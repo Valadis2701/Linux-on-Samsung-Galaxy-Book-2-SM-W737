@@ -1,0 +1,18 @@
+[Unit]
+Description=W737 SN65DSI86 DSI lane/mode fix (register 0x10 = 0x26)
+# The daemon polls the bridge over i2c, so it needs no ordering against DRM,
+# but it must be up before the first modeset happens.
+After=systemd-udevd.service
+Before=display-manager.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/w737-fix10
+Restart=always
+RestartSec=2
+TimeoutStopSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

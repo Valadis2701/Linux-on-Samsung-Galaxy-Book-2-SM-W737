@@ -1,0 +1,3 @@
+# Give the video group access to the DP AUX channel so the brightness tool can
+# run without root. The bridge itself stays owned by the kernel driver.
+SUBSYSTEM=="drm_dp_aux_dev", KERNEL=="drm_dp_aux*", GROUP="video", MODE="0660"
