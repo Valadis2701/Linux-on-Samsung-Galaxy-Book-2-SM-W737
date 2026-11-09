@@ -251,6 +251,3 @@ echo 40 > /sys/class/backlight/w737/brightness
   (`0x12 = 0x7B`). 2160×1440 at 60 Hz fits, but there is no headroom. True
   dual-channel operation needs roughly 100–150 lines of driver work plus DT
   changes.
-- **Colour profiles** (`setColorProfile`) are implemented in the engine but have
-  not been validated on this panel.
-- **Brightness keys** are not bound; the slider and the CLI work.
