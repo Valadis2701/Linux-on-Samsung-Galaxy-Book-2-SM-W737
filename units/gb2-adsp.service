@@ -1,0 +1,16 @@
+[Unit]
+Description=GB2 ADSP bring-up (firmware only visible after / is mounted)
+Documentation=file:///usr/local/sbin/gb2-adsp-start.sh
+After=local-fs.target
+Before=sound.target display-manager.service
+ConditionPathExists=/sys/class/remoteproc
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/gb2-adsp-start.sh
+TimeoutStartSec=90
+
+[Install]
+WantedBy=multi-user.target

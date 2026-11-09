@@ -14,6 +14,7 @@ together. It is a living document: components are added as they start working.
 | Component | Status | Notes |
 |---|---|---|
 | Display bridge (TI SN65DSI86) | **Working** | 2160×1440 internal AMOLED over a single DSI channel; brightness controlled from the GNOME slider |
+| Audio (WCD9340 + 2x WSA8815) | **Working** | speakers play; ADSP is brought up by a unit after `local-fs.target`, routing comes from an ALSA UCM profile, treble is tamed by a PipeWire EQ |
 
 ## Components in detail
 
@@ -236,14 +237,6 @@ dragging the slider feel immediate.
 6. **DPMS and `xset` do not work here** — the compositor holds DRM master and
    the kernel returns `EACCES`, so recovering a confused TCON means a reboot.
 
-#### Verification
-
-```sh
-cat /sys/class/backlight/w737/{max_brightness,brightness}
-journalctl -u w737-fix10 -b | grep "fix #"
-journalctl -u w737-brightnessd -b | tail      # expect reg2_26=0x06
-echo 40 > /sys/class/backlight/w737/brightness
-```
 
 #### Known limitations
 
@@ -251,3 +244,128 @@ echo 40 > /sys/class/backlight/w737/brightness
   (`0x12 = 0x7B`). 2160×1440 at 60 Hz fits, but there is no headroom. True
   dual-channel operation needs roughly 100–150 lines of driver work plus DT
   changes.
+
+
+### Audio — WCD9340 + 2x WSA8815
+
+#### Topology
+
+```
+MultiMedia1 (the only PCM, hw:0,0)
+   │  Q6 ASM frontend on the ADSP
+   ▼
+SLIMBUS_0_RX ── SLIMbus ──> WCD9340 ── SLIM RX0/RX1 ── RX INT7_1 / RX INT8_1
+                                                   └─ SPK1/SPK2 OUT
+                                                        │ analog
+                                                        ▼
+                                             WSA8815 left / right ──> speakers
+                                             (SoundWire: sdw:0:0:0217:2110:00:3, …:00:4)
+```
+
+The card is `Book2` (`snd_soc_sdm845`), and it exposes exactly **one** PCM,
+`MultiMedia1`. The SLIMbus link is a DPCM backend, so it has to be routed with
+the mixer before the PCM can even be opened.
+
+#### Why the card never appears on a clean install
+
+`qcom_q6v5_pas` is a module and Debian keeps modules in the initramfs
+(`MODULES=most`). udev loads it there and the driver probes ~130 ms **before the
+root filesystem is mounted**:
+
+```
+00:15:26.437678  Run /init as init process
+00:15:26.454409  remoteproc-adsp is available
+00:15:26.458145  Direct firmware load for qcom/sdm850/samsung/w737/qcadsp850.mbn failed with error -2
+00:15:26.585408  EXT4-fs (sdb3): mounted filesystem 265893f1-…
+```
+
+The firmware is on disk and readable — just not yet, so the ADSP stays `offline`
+and the machine driver registers no card. initramfs-tools cannot know about it
+either: the driver takes the file name from the device tree (`firmware-name`) and
+declares no `MODULE_FIRMWARE()` (the GPU firmware *is* in the initramfs for the
+opposite reason — `msm` declares its files).
+
+**Trap:** copying `qcadsp850.mbn` into the initramfs "fixes" the `-2` and bricks
+the boot. The ADSP then starts inside the initramfs, in the middle of udev
+coldplug, and the root is never mounted: black screen, nothing in the journal, no
+pstore. We hit this and recovered through a live USB (the installer carries no
+`ext4.ko`; it has to be loaded from the stick together with `mbcache`, `jbd2` and
+`crc16`), restoring the previous `/boot/initrd.img-…`.
+
+The working fix is the opposite: start the ADSP **after** the root is mounted.
+
+```sh
+# units/gb2-adsp.service + bin/gb2-adsp-start.sh
+After=local-fs.target
+Before=sound.target display-manager.service
+ExecStart=/usr/local/sbin/gb2-adsp-start.sh
+```
+
+The script writes `start` into `/sys/class/remoteproc/remoteproc*/state`, waits
+for `running`, then waits for the card; if the machine driver probed while the
+ADSP was still down, it re-probes `snd-soc-sdm845` once. Log on a healthy boot:
+
+```
+gb2-adsp-start.sh: adsp: running
+gb2-adsp-start.sh: sound: card0=Book2
+```
+
+#### Routing and volume
+
+```
+MultiMedia1 -> "SLIMBUS_0_RX Audio Mixer MultiMedia1" 1
+            -> SLIM RX0/RX1 MUX = AIF1_PB
+            -> RX INT7_1 / RX INT8_1 MIX1 INP0 = RX0 / RX1
+            -> SpkrLeft/Right DAC, COMP, BOOST switches, PA Volume 9/12
+```
+
+Kernel log during playback confirms the AFE map:
+
+```
+qcom-q6afe …: slim cfg v2: dev_id 0 rate 48000 bw 16 ch 2 fmt 0 map 144 145 0 0
+```
+
+**Trap:** the codec has separate mono gains per speaker (`RX7` for left, `RX8`
+for right). Declaring `PlaybackVolume "RX7 Digital Volume"` in the UCM profile
+makes PipeWire's slider drive only the left channel — the result is +27 dB on the
+left and a badly unbalanced pair. The profile therefore declares no
+`PlaybackVolume` at all: PipeWire does the volume in software, the codec stays at
+0 dB (`RX7 = RX8 = 84`), the analog PA sits at 9/12 (13.5 dB).
+
+#### Treble: why an EQ
+
+Windows shaped these speakers with the Qualcomm ACDB calibration
+(`Speaker_cal.acdb`, opaque CLID tables) running on the **WDSP**
+(`qcauddev850.sys` loads `qcwdsp850.mbn`), and with a Dolby Atmos profile whose
+graphic EQ is disabled anyway (`graphic-equalizer-enable 0`, all bands zero).
+None of that is reachable from mainline, so the Linux path is flat and audibly
+brighter.
+
+`units/pipewire/80-book2-eq.conf` inserts a PipeWire `filter-chain` in front of
+the hardware sink (a virtual sink `effect_input.book2_eq`, set as default):
+
+| Band | Freq | Q | Gain |
+|---|---|---|---|
+| low-shelf | 150 Hz | 0.7 | 0 dB |
+| high-shelf | 3.5 kHz | 0.7 | −5 dB |
+| peak | 6.5 kHz | 1.2 | −3 dB |
+| peak | 10 kHz | 1.0 | −2 dB |
+
+That is −3.5 dB at 3.5 kHz, −8.5 dB at 6.5 kHz, −8 dB at 10 kHz. Tune by editing
+the `"Gain"` values and restarting `pipewire`; no GUI is shipped on purpose.
+
+#### Speaker protection
+
+There is no ADRC on this side: only the amps' own OCP and over-temperature
+protection. Keep the sink at 100 % or below and `Spkr* PA Volume` at 9/12; do not
+raise `RX7/RX8 Digital Volume` above 84 (+0 dB) for loudness.
+
+
+#### Known limitations
+
+- **No microphone path**: only the speaker route is configured in UCM.
+- **No headphone path**: the headset jack (`Book2 Headset Jack` input device is
+  registered by the codec) has no UCM device yet.
+- **No hardware volume**: the sink volume is software, so it cannot go below the
+  codec's noise floor the way an analog control would.
+- **Windows tuning is unrecoverable**: ACDB + WDSP are unusable on mainline.
