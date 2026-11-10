@@ -15,6 +15,7 @@ together. It is a living document: components are added as they start working.
 |---|---|---|
 | Display bridge (TI SN65DSI86) | **Working** | 2160×1440 internal AMOLED over a single DSI channel; brightness controlled from the GNOME slider |
 | Audio (WCD9340 + 2x WSA8815) | **Working** | speakers play; ADSP is brought up by a unit after `local-fs.target`, routing comes from an ALSA UCM profile, treble is tamed by a PipeWire EQ |
+| USB-C (2x S2MM005) and charging (ISL9238) | **Working** | hotplug on both ports, power role switching (sink/source), USB-PD charging with the adapter limit taken from the negotiated contract |
 
 ## Components in detail
 
@@ -245,6 +246,73 @@ dragging the slider feel immediate.
   dual-channel operation needs roughly 100–150 lines of driver work plus DT
   changes.
 
+
+### USB-C and charging — S2MM005, PTN36502, ISL9238
+
+#### Topology
+
+| Port | PD controller | Bus | VBUS switch |
+|---|---|---|---|
+| 1 | S2MM005 + PTN36502 redriver | `i2c@a90000`, `0x33` / `0x1a` | TLMM 104 (not modelled) |
+| 2 | S2MM005 | `i2c@880000`, `0x33` | TLMM 114 (`regulator-vbus-port1`) |
+
+The charger (ISL9238, `0x09`) and the SBS battery (`0x0b`) sit on
+`i2c@89c000`. Under Windows the embedded-controller emulation `EmuEC.sys`
+owns all of this; the sequences below come from its decompilation.
+
+#### `gb2_usbc` (`src/usbc/`)
+
+- Initialises each S2MM005 the way EmuEC does (wake = 5 reads of `0x0008`,
+  `0F 0B`, soft reset `02 01 1C 10 01`, `03 08 14`, `0F 06`, read of the
+  48-byte status block at `0x30`, interrupt clear).
+- Switches the power role with `03 91 P C 00 (P|C<<1)` and restores DRP mode
+  (`02 01 00 50 03`) on detach, so the next device is detected as either
+  sink or source.
+- Drives VBUS on port 2 through `vbus-supply`: off while sinking, on when
+  the partner is a sink, off on detach.
+- If a port flips from sink to source without a contract (a battery keyboard
+  that first offers power, then wants it), it resets the port once so the
+  device is re-detected as a sink and gets VBUS.
+- Exports each port as a power supply `gb2-typec<n>` (`online`,
+  `voltage_now`, `current_max` from the selected PDO, 5 V / 500 mA without a
+  contract).
+
+#### `gb2-charger` (`src/charger/`, compatible `gb2,sbs-charger`)
+
+The ISL9238 drops its charge current to 0 about a minute after the last
+host write (SMBus watchdog), so nothing charges unless something keeps
+writing. Every `kick_ms` (10 s) the driver:
+
+- sets the adapter limit (`0x3F`/`0x3B`) to the contract current of the port
+  that owns the charge path, from `gb2-typec<n>`, up to 3 A. The chip
+  reloads its 476 mA PROG default on every plug-in, so this is rewritten on
+  every refresh;
+- writes the charge current (`0x14`): 0 without ACOK, at or above
+  `full_pct` (96 %, 2 % hysteresis), or outside 0–45 °C; otherwise
+  min(`charge_ma` = 2000, the current the pack requests over SBS);
+- logs which loop limits the charger (adapter, charge current, voltage).
+
+On removal it writes 0 to `0x14`.
+
+#### Installing
+
+```sh
+install -m 0644 bin/modules/gb2_usbc.ko bin/modules/gb2-charger.ko \
+        /lib/modules/$(uname -r)/extra/
+depmod -a
+# and boot bin/w737.dtb (adds regulator-vbus-port1 / vbus-supply)
+```
+
+Both modules load from the DT match. To rebuild:
+`make -C /lib/modules/$(uname -r)/build M=$PWD modules` in each `src/` directory.
+
+#### Known limitations
+
+- VBUS on port 1 (TLMM 104) is not controlled, so port 1 cannot power a
+  device that has no battery.
+- The adapter-limit encoding assumes the reference 20 mΩ sense resistor.
+- Measured charge rate is about 1.2 A at the 2 A setting; the pack request
+  and the charger's own loops cap it.
 
 ### Audio — WCD9340 + 2x WSA8815
 
