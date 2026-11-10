@@ -246,6 +246,42 @@ dragging the slider feel immediate.
   changes.
 
 
+### Cameras (not working, bring-up notes)
+
+Nothing camera-related runs yet: CAMSS is disabled in the DT and none of
+the sensors is described. This section is what the Windows DSDT
+(`QCOM0245`/`024A`/`0247`) and the Windows driver package give so far.
+
+| ACPI | Role | Sensor | I2C addr (7-bit) | Chip ID | MCLK | Rails (PM8998) | TLMM GPIOs used |
+|---|---|---|---|---|---|---|---|
+| `CAMS` | rear | Samsung S5K4H5YC (8 MP) | `0x37` | `0x485B` | `mclk0` | LDO16, LVS1, LDO19 | 13, 17, 18, 25, 91, 95 |
+| `CAMF` | front | Samsung S5K5E3YX (5 MP) | `0x10` | `0x5E30` | `mclk2` | LDO16, LVS2 | 12, 15, 19, 20, 127, 129 |
+| `CAMI` | IR (Windows Hello) | OmniVision OV7251 | `0x60` | `0x7750` | `mclk2` | LVS1, LDO22 | 23 |
+
+- Source: each device's `SCFG` method returns
+  `{sensormodule .bin, tuned .bin, 0x0015<8-bit addr>, <chip ID><…>}`. The
+  chip IDs match the sensors' datasheet IDs, which confirms the field layout.
+- Rails, clocks and GPIOs come from the PEP resource tables for `\_SB.CAMS`,
+  `\_SB.CAMF` and `\_SB.CAMI`.
+- Not mapped yet:
+  - The GPIO roles. On SDM845, 13/15 are `CAM_MCLK0/2`, 17/18 are `CCI_I2C`
+    bus 0 and 19/20 are bus 1. The rest are likely reset and power enables.
+  - Which CSIPHY each sensor uses.
+- Windows tuning: `com.qti.sensormodule.*.bin` and `com.qti.tuned.*.bin` in the
+  `qccam*sensor850` driver folders hold the power-up sequences and register
+  settings. They are not extracted yet.
+
+What a working camera needs:
+
+1. CAMSS + CCI enabled in the DT, with the three sensors on CCI and their
+   rails, MCLKs and GPIOs.
+2. Sensor drivers:
+   - OV7251 already has a mainline driver (`ov7251.c`), so the IR camera is
+     the easiest first target.
+   - S5K4H5YC and S5K5E3YX have none; they need new drivers, register tables
+     taken from the Windows sensor-module bins.
+3. libcamera with the software ISP for usable colour output.
+
 ### Audio — WCD9340 + 2x WSA8815
 
 #### Topology
