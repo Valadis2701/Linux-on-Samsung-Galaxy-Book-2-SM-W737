@@ -1306,6 +1306,16 @@
 		};
 	};
 
+	regulator-vbus-port1 {
+		compatible = "regulator-fixed";
+		regulator-name = "vbus_port1";
+		regulator-min-microvolt = <0x4c4b40>;
+		regulator-max-microvolt = <0x4c4b40>;
+		gpio = <0x67 0x72 0x00>;
+		enable-active-high;
+		phandle = <0x121>;
+	};
+
 	soc@0 {
 		#address-cells = <0x02>;
 		#size-cells = <0x02>;
@@ -1397,6 +1407,7 @@
 				s2mm005@33 {
 					compatible = "siliconmitus,s2mm005";
 					reg = <0x33>;
+					vbus-supply = <0x121>;
 				};
 			};
 
