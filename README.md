@@ -14,7 +14,7 @@ together. It is a living document: components are added as they start working.
 | Component | Status | Notes |
 |---|---|---|
 | Display bridge (TI SN65DSI86) | **Working** | 2160×1440 internal AMOLED over a single DSI channel; brightness controlled from the GNOME slider |
-| Audio (WCD9340 + 2x WSA8815) | **Working** | speakers play; ADSP is brought up by a unit after `local-fs.target`, routing comes from an ALSA UCM profile, treble is tamed by a PipeWire EQ |
+| Audio (WCD9340 + 2x WSA8815) | **Working** | speakers play, internal stereo microphone records; ADSP is brought up by a unit after `local-fs.target`, routing comes from an ALSA UCM profile, treble is tamed by a PipeWire EQ |
 
 ## Components in detail
 
@@ -363,7 +363,10 @@ raise `RX7/RX8 Digital Volume` above 84 (+0 dB) for loudness.
 
 #### Known limitations
 
-- **No microphone path**: only the speaker route is configured in UCM.
+- **Microphone**: the internal mics are the codec's digital inputs DMIC0-DMIC3
+  (two pairs; DMIC1/DMIC3 nearly duplicate DMIC0/DMIC2). The UCM `Mic` device
+  records DMIC0 + DMIC2 in stereo on MultiMedia2 (`hw:0,1`), which the DT adds
+  as `mm2-dai-link`. The headset mic is not routed yet.
 - **No headphone path**: the headset jack (`Book2 Headset Jack` input device is
   registered by the codec) has no UCM device yet.
 - **No hardware volume**: the sink volume is software, so it cannot go below the

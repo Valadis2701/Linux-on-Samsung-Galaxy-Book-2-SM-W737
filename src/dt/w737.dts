@@ -974,13 +974,21 @@
 	sound {
 		compatible = "qcom,sdm845-sndcard";
 		model = "Book2";
-		audio-routing = "RX_BIAS", "MCLK", "AMIC1", "MIC BIAS1", "AMIC2", "MIC BIAS2", "DMIC0", "MIC BIAS1", "DMIC1", "MIC BIAS1", "SpkrLeft IN", "SPK1 OUT", "SpkrRight IN", "SPK2 OUT", "Left Spk", "SPK1 OUT", "Right Spk", "SPK2 OUT";
+		audio-routing = "RX_BIAS", "MCLK", "AMIC1", "MIC BIAS1", "AMIC2", "MIC BIAS2", "DMIC0", "MIC BIAS1", "DMIC1", "MIC BIAS1", "DMIC2", "MIC BIAS1", "DMIC3", "MIC BIAS1", "SpkrLeft IN", "SPK1 OUT", "SpkrRight IN", "SPK2 OUT", "Left Spk", "SPK1 OUT", "Right Spk", "SPK2 OUT";
 
 		mm1-dai-link {
 			link-name = "MultiMedia1";
 
 			cpu {
 				sound-dai = <0xf4 0x00>;
+			};
+		};
+
+		mm2-dai-link {
+			link-name = "MultiMedia2";
+
+			cpu {
+				sound-dai = <0xf4 0x01>;
 			};
 		};
 
