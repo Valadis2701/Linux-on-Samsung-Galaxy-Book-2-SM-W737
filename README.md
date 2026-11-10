@@ -246,6 +246,35 @@ dragging the slider feel immediate.
   changes.
 
 
+### Cellular — modem + IPA (experimental, untested)
+
+State on the 6.12.107 image:
+
+- The modem DSP (MPSS) boots, and ModemManager reaches it over QRTR/QMI.
+- Data never comes up. ModemManager reports `Failed to find a net port`:
+  the data path is IPA plus `rmnet`, and IPA is not running.
+- Loading `ipa` (with `qcom/sdm850/samsung/w737/ipa_fws.elf` present)
+  resets the machine instantly. That is why the IPA firmware is usually kept
+  renamed, or `module_blacklist=ipa` is used.
+
+The IPA node uses `qcom,gsi-loader = "self"`. The GSI firmware itself loads
+to `0x01e08000`/`0x01e5e000`; `memory-region` is only the staging buffer the
+loader hands to TrustZone. In the stock DT that buffer is at `0x8d700000`,
+inside the block UEFI reserves (`0x8b500000`–`0x994fffff`). TrustZone may
+refuse it, which would match the reset.
+
+`bin/w737-ipa.dtb` is `bin/w737.dtb` with only that region moved to
+`0x9d000000` (plain RAM, no overlap with other reserved regions).
+`bin/w737.dtb` is unchanged.
+
+To try it, keep a boot entry with `module_blacklist=ipa` as the default, so
+a reset just falls back to it. Add one entry that loads `w737-ipa.dtb`
+without the blacklist, and restore `ipa_fws.elf`.
+
+Not confirmed. The first boot with this change ended on the IPA-off
+fallback entry. If the reset persists, the next thing to try is
+`qcom,gsi-loader = "modem"` (the modem loads GSI itself).
+
 ### Audio — WCD9340 + 2x WSA8815
 
 #### Topology
