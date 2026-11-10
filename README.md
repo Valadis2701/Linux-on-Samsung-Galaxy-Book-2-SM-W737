@@ -241,9 +241,39 @@ dragging the slider feel immediate.
 #### Known limitations
 
 - **Single DSI channel.** The bridge runs one channel with 4 lanes at 615 MHz
-  (`0x12 = 0x7B`). 2160×1440 at 60 Hz fits, but there is no headroom. True
-  dual-channel operation needs roughly 100–150 lines of driver work plus DT
-  changes.
+  (`0x12 = 0x7B`). 2160×1440 at 60 Hz fits, but there is no headroom.
+  Dual-channel support is in testing, see below.
+
+#### Dual-channel DSI (experimental, untested)
+
+`src/sn65dsi86/` is `ti-sn65dsi86` from Debian 6.12.107 with dual-DSI support
+(`ti-sn65dsi86-dual-dsi-6.12.patch`, prebuilt in `bin/modules/`):
+
+- an optional channel-B input on the bridge's `port@2`; the driver attaches a
+  second DSI device to that host;
+- in dual mode `0x10` is written whole as `0x80` (dual, `LEFT_RIGHT_PIXELS`,
+  4+4 lanes), the value UEFI uses; each channel carries half of every line
+  (`0x20`/`0x22`) at half the DSI clock (`0x12`/`0x13`);
+- in single mode `0x10` is now also written whole (single channel A), so the
+  driver no longer leaves the firmware's dual-mode bits behind.
+
+`bin/w737-dual.dtb` is `bin/w737.dtb` with `dsi@ae94000` as bonded master,
+`dsi@ae96000` enabled as the slave (`qcom,dual-dsi-mode`, `qcom,sync-dual-dsi`)
+and its output wired to the bridge's `port@2`. msm already supports this
+layout: only the master DSI of a bonded pair looks up the external bridge.
+
+To try it, keep a normal boot entry and add one that loads `w737-dual.dtb`
+and adds `gb2dual` to the kernel command line; install
+`units/w737-fix10.service.d/dual-dsi.conf` under
+`/etc/systemd/system/w737-fix10.service.d/` so `w737-fix10` (which forces
+`0x26`) does not run on that entry:
+
+```sh
+install -D -m 0644 bin/modules/ti-sn65dsi86.ko /lib/modules/$(uname -r)/updates/ti-sn65dsi86.ko
+depmod -a
+```
+
+Expected on the dual entry: `0x10 = 0x80`, `0x12 = 0x13`, `0x20/0x22` = 1080.
 
 
 ### Audio — WCD9340 + 2x WSA8815
